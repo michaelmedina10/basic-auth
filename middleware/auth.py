@@ -13,6 +13,24 @@ load_dotenv()
 PROTECTED_ENDPOINTS = ("/alerts")
 security = HTTPBasic()
 
+
+async def apply_basic_auth(request: Request, call_next):
+    try:
+        if request.url.path.startswith(PROTECTED_ENDPOINTS):
+            auth_header = request.headers.get("Authorization")
+            if auth_header is None or not auth_header.startswith("Basic "):
+                raise CredentialsException(detail="Credentials Necessary", status_code=status.HTTP_401_UNAUTHORIZED)
+
+            encoded_credentials = auth_header.split(" ")[1]
+            decoded_credentials = base64.b64decode(encoded_credentials).decode("ascii")
+            username, password = decoded_credentials.split(":")
+            is_user_valid(credentials=HTTPBasicCredentials(username=username, password=password))
+        response = await call_next(request)
+        return response
+    except (HTTPException, CredentialsException) as e:
+        return JSONResponse(content=f"{e.detail}", status_code=e.status_code)
+
+
 def is_user_valid(credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> None:
     correct_username = os.getenv("USERNAME", "")
     correct_password = os.getenv("PASSWORD", "")
@@ -23,20 +41,3 @@ def is_user_valid(credentials: Annotated[HTTPBasicCredentials, Depends(security)
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Basic"},
         )
-
-
-async def apply_basic_auth(request: Request, call_next):
-    try:
-        if request.url.path.startswith(PROTECTED_ENDPOINTS):
-            auth_header = request.headers.get("Authorization")
-            if auth_header is None or not auth_header.startswith("Basic "):
-                raise CredentialsException(detail="Credentials Necessary", status_code=401)
-
-            encoded_credentials = auth_header.split(" ")[1]
-            decoded_credentials = base64.b64decode(encoded_credentials).decode("ascii")
-            username, password = decoded_credentials.split(":")
-            is_user_valid(credentials=HTTPBasicCredentials(username=username, password=password))
-        response = await call_next(request)
-        return response
-    except (HTTPException, CredentialsException) as e:
-        return JSONResponse(content=f"{e.detail}", status_code=e.status_code)
